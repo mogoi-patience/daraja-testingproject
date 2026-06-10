@@ -1,0 +1,128 @@
+{
+  "info": {
+    "name": "Daraja STK Push API",
+    "description": "Complete M-Pesa STK Push integration — Sandbox testing collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "checkoutRequestId", "value": "", "type": "string" },
+    { "key": "transactionId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/health" },
+        "description": "Check server health and DB connectivity"
+      },
+      "response": [
+        {
+          "name": "200 Healthy",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"status\": \"healthy\",\n  \"environment\": \"development\",\n  \"uptime\": 42.5,\n  \"timestamp\": \"2024-02-01T10:00:00.000Z\",\n  \"services\": { \"database\": \"ok\" }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Initiate STK Push",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 202) {",
+              "  const body = pm.response.json();",
+              "  pm.collectionVariables.set('checkoutRequestId', body.data.checkoutRequestId);",
+              "  pm.collectionVariables.set('transactionId', body.data.transactionId);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/v1/payments/stk-push" },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"254708374149\",\n  \"amount\": 1,\n  \"accountReference\": \"TestAcc\",\n  \"transactionDesc\": \"Test Payment\"\n}"
+        },
+        "description": "Initiate M-Pesa STK Push. Phone must be the Daraja sandbox test number."
+      },
+      "response": [
+        {
+          "name": "202 Accepted",
+          "status": "Accepted",
+          "code": 202,
+          "body": "{\n  \"success\": true,\n  \"message\": \"STK Push initiated successfully. Awaiting user PIN entry.\",\n  \"data\": {\n    \"transactionId\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"checkoutRequestId\": \"ws_CO_01022024100000000700000\",\n    \"merchantRequestId\": \"29115-34620561-1\",\n    \"customerMessage\": \"Success. Request accepted for processing\",\n    \"status\": \"PENDING\"\n  },\n  \"timestamp\": \"2024-02-01T10:00:00.000Z\"\n}"
+        },
+        {
+          "name": "400 Validation Error",
+          "status": "Bad Request",
+          "code": 400,
+          "body": "{\n  \"success\": false,\n  \"message\": \"Validation failed\",\n  \"error\": \"[{\\\"msg\\\": \\\"Invalid Kenyan phone number\\\", \\\"path\\\": \\\"phoneNumber\\\"}]\",\n  \"timestamp\": \"2024-02-01T10:00:00.000Z\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "List Transactions",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/payments/transactions?page=1&limit=20",
+          "query": [
+            { "key": "page", "value": "1" },
+            { "key": "limit", "value": "20" },
+            { "key": "status", "value": "PENDING", "disabled": true }
+          ]
+        },
+        "description": "List all STK Push transactions with pagination. Filter by status with ?status=PENDING|SUCCESS|FAILED|CANCELLED|TIMEOUT"
+      }
+    },
+    {
+      "name": "Get Transaction by ID",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/api/v1/payments/transactions/{{transactionId}}" },
+        "description": "Retrieve a single transaction using its UUID"
+      }
+    },
+    {
+      "name": "Query Transaction Status (Daraja)",
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{baseUrl}}/api/v1/payments/query/{{checkoutRequestId}}" },
+        "description": "Query Daraja directly for transaction status (combines local DB + Daraja API)"
+      }
+    },
+    {
+      "name": "Simulate Callback (SUCCESS)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/v1/payments/callback" },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Body\": {\n    \"stkCallback\": {\n      \"MerchantRequestID\": \"29115-34620561-1\",\n      \"CheckoutRequestID\": \"{{checkoutRequestId}}\",\n      \"ResultCode\": 0,\n      \"ResultDesc\": \"The service request is processed successfully.\",\n      \"CallbackMetadata\": {\n        \"Item\": [\n          { \"Name\": \"Amount\", \"Value\": 1.00 },\n          { \"Name\": \"MpesaReceiptNumber\", \"Value\": \"LHG31AA5TX\" },\n          { \"Name\": \"TransactionDate\", \"Value\": 20240201101010 },\n          { \"Name\": \"PhoneNumber\", \"Value\": 254708374149 }\n        ]\n      }\n    }\n  }\n}"
+        },
+        "description": "Simulate a successful Daraja callback. Replace CheckoutRequestID with the one from STK Push response."
+      }
+    },
+    {
+      "name": "Simulate Callback (CANCELLED by user)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/v1/payments/callback" },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Body\": {\n    \"stkCallback\": {\n      \"MerchantRequestID\": \"29115-34620561-1\",\n      \"CheckoutRequestID\": \"{{checkoutRequestId}}\",\n      \"ResultCode\": 1032,\n      \"ResultDesc\": \"Request cancelled by user.\"\n    }\n  }\n}"
+        },
+        "description": "Simulate user pressing cancel/timeout on the STK Push popup."
+      }
+    }
+  ]
+}
